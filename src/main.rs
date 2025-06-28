@@ -61,6 +61,7 @@ async fn rocket() -> _ {
                 get_feedbacks,
                 create_user,
                 logout,
+                verify_token,
             ],
         )
         .register("/", error_catchers())

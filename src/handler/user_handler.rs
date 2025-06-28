@@ -1,13 +1,35 @@
-use rocket::{http::Status, serde::json::Json, State};
+use rocket::{http::Status, request::Request, request::FromRequest, serde::json::Json, State};
 use sqlx::MySqlPool;
 
 use crate::{
     model::{
-        token::JwtToken,
+        token::{JwtToken, TokenVerificationResponse, TokenInfo, UserInfo},
         user::{ParamUser, UserEmail},
     },
     service::user_service,
 };
+
+pub struct BearerToken(pub String);
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for BearerToken {
+    type Error = &'static str;
+
+    async fn from_request(req: &'r Request<'_>) -> rocket::request::Outcome<Self, Self::Error> {
+        let authorization = req.headers().get_one("Authorization");
+        match authorization {
+            Some(auth) => {
+                if auth.starts_with("Bearer ") {
+                    let token = auth[7..].to_string();
+                    rocket::request::Outcome::Success(BearerToken(token))
+                } else {
+                    rocket::request::Outcome::Failure((Status::BadRequest, "Invalid authorization format"))
+                }
+            }
+            None => rocket::request::Outcome::Failure((Status::Unauthorized, "Missing authorization header")),
+        }
+    }
+}
 
 #[post("/user", data = "<user_data>")]
 pub async fn create_user(
@@ -33,5 +55,29 @@ pub async fn logout(
     {
         Ok(_) => Ok(Status::Ok),
         Err(_) => Err(Status::InternalServerError),
+    }
+}
+
+#[post("/user/verify-token")]
+pub async fn verify_token(
+    pool: &State<MySqlPool>,
+    bearer_token: BearerToken,
+) -> Result<Json<TokenVerificationResponse>, Status> {
+    match user_service::verify_token(pool, bearer_token.0).await {
+        Ok((user, jwt_token)) => {
+            let response = TokenVerificationResponse {
+                user: UserInfo {
+                    email: user.user_email,
+                    display_name: user.user_display_name,
+                    photo_url: user.user_photo_url,
+                },
+                token: TokenInfo {
+                    access_token: jwt_token.access_token,
+                    expires_at: jwt_token.access_token_expires_at,
+                },
+            };
+            Ok(Json(response))
+        }
+        Err(_) => Err(Status::Unauthorized),
     }
 }

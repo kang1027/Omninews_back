@@ -1,7 +1,7 @@
 use std::env;
 
 use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use rocket::State;
 use serde::{Deserialize, Serialize};
 use sqlx::MySqlPool;
@@ -10,7 +10,7 @@ use crate::{
     model::{
         error::OmniNewsError,
         token::JwtToken,
-        user::{NewUser, ParamUser},
+        user::{NewUser, ParamUser, User},
     },
     repository::user_repository,
 };
@@ -164,4 +164,60 @@ pub async fn delete_user_token(
             Err(OmniNewsError::Database(e))
         }
     }
+}
+
+pub async fn verify_token(
+    pool: &State<MySqlPool>,
+    token: String,
+) -> Result<(crate::model::user::User, JwtToken), OmniNewsError> {
+    let key_string = env::var("JWT_SECRET_KEY").unwrap();
+    let key = key_string.as_bytes();
+    let mut validation = Validation::default();
+    validation.set_audience(&["omninews"]);
+
+    // Decode and verify JWT token
+    let token_data = match decode::<Claims>(&token, &DecodingKey::from_secret(key), &validation) {
+        Ok(data) => data,
+        Err(e) => {
+            error!("[Service] Failed to decode JWT token: {}", e);
+            return match e.kind() {
+                jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                    Err(OmniNewsError::TokenError)
+                }
+                _ => Err(OmniNewsError::TokenError),
+            };
+        }
+    };
+
+    let user_email = token_data.claims.sub;
+
+    // Get user information from database
+    let user = match user_repository::select_user_with_token_by_email(pool, user_email).await {
+        Ok(user) => user,
+        Err(e) => {
+            error!("[Service] Failed to get user: {}", e);
+            return Err(OmniNewsError::Database(e));
+        }
+    };
+
+    // Verify the token matches what's stored in the database
+    if let Some(stored_token) = &user.user_access_token {
+        if stored_token != &token {
+            error!("[Service] Token mismatch");
+            return Err(OmniNewsError::TokenError);
+        }
+    } else {
+        error!("[Service] No token stored for user");
+        return Err(OmniNewsError::TokenError);
+    }
+
+    // Return user information and token details
+    let jwt_token = JwtToken {
+        access_token: user.user_access_token.clone(),
+        refresh_token: user.user_refresh_token.clone(),
+        access_token_expires_at: user.user_access_token_expires_at,
+        refresh_token_expires_at: user.user_refresh_token_expires_at,
+    };
+
+    Ok((user, jwt_token))
 }
