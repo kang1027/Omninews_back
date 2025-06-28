@@ -182,9 +182,9 @@ pub async fn verify_token(
             error!("[Service] Failed to decode JWT token: {}", e);
             return match e.kind() {
                 jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                    Err(OmniNewsError::TokenError)
+                    Err(OmniNewsError::TokenExpired)
                 }
-                _ => Err(OmniNewsError::TokenError),
+                _ => Err(OmniNewsError::InvalidToken),
             };
         }
     };
@@ -204,11 +204,11 @@ pub async fn verify_token(
     if let Some(stored_token) = &user.user_access_token {
         if stored_token != &token {
             error!("[Service] Token mismatch");
-            return Err(OmniNewsError::TokenError);
+            return Err(OmniNewsError::InvalidToken);
         }
     } else {
         error!("[Service] No token stored for user");
-        return Err(OmniNewsError::TokenError);
+        return Err(OmniNewsError::InvalidToken);
     }
 
     // Return user information and token details

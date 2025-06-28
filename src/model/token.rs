@@ -29,3 +29,8 @@ pub struct TokenInfo {
     pub access_token: Option<String>,
     pub expires_at: Option<NaiveDateTime>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenErrorResponse {
+    pub error: String,
+}

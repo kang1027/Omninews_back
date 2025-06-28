@@ -22,4 +22,10 @@ pub enum OmniNewsError {
 
     #[error("Failed to create JWT token")]
     TokenError,
+
+    #[error("Token expired")]
+    TokenExpired,
+
+    #[error("Invalid token")]
+    InvalidToken,
 }

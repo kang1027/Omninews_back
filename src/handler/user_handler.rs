@@ -3,7 +3,8 @@ use sqlx::MySqlPool;
 
 use crate::{
     model::{
-        token::{JwtToken, TokenVerificationResponse, TokenInfo, UserInfo},
+        error::OmniNewsError,
+        token::{JwtToken, TokenVerificationResponse, TokenInfo, UserInfo, TokenErrorResponse},
         user::{ParamUser, UserEmail},
     },
     service::user_service,
@@ -62,7 +63,7 @@ pub async fn logout(
 pub async fn verify_token(
     pool: &State<MySqlPool>,
     bearer_token: BearerToken,
-) -> Result<Json<TokenVerificationResponse>, Status> {
+) -> Result<Json<TokenVerificationResponse>, (Status, Json<TokenErrorResponse>)> {
     match user_service::verify_token(pool, bearer_token.0).await {
         Ok((user, jwt_token)) => {
             let response = TokenVerificationResponse {
@@ -78,6 +79,15 @@ pub async fn verify_token(
             };
             Ok(Json(response))
         }
-        Err(_) => Err(Status::Unauthorized),
+        Err(e) => {
+            let error_message = match e {
+                OmniNewsError::TokenExpired => "Token expired",
+                OmniNewsError::InvalidToken => "Invalid token",
+                _ => "Invalid token",
+            };
+            Err((Status::Unauthorized, Json(TokenErrorResponse {
+                error: error_message.to_string(),
+            })))
+        }
     }
 }
